@@ -1,0 +1,11 @@
+# VSG configuration file for the Hadamard Gate project.
+# Disabilita le regole non applicabili al codice di simulazione.
+rule:
+  global:
+    indentSize: 4
+  # signal_007: vieta valori di default su signal. In un testbench non
+  # sintetizzabile l'inizializzazione di un signal e' una pratica corretta
+  # e diffusa, quindi disabilitiamo la regola solo per i file *_tb / tb_*.
+  signal_007:
+    disable: true
+

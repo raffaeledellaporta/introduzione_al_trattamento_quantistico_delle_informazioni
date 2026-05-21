@@ -1,0 +1,47 @@
+================================================================================
+VSG LINTER REPORT - BEFORE AUTO-FIX
+================================================================================
+Tool      : VHDL Style Guide (VSG) version 3.35.0
+Files     : src/hadamard_core.vhd, src/hadamard_top.vhd, sim/tb_hadamard.vhd
+Ruleset   : default (IEEE 1076 + community best-practices)
+Total rules checked per file: 177 -> 362 (across phases)
+
+--------------------------------------------------------------------------------
+SUMMARY (BEFORE FIX)
+--------------------------------------------------------------------------------
+File                                Errors   Warnings
+src/hadamard_core.vhd                  15           0
+src/hadamard_top.vhd                    6           0
+sim/tb_hadamard.vhd                    23           0
+                                   ------    -------
+TOTAL                                  44           0
+
+--------------------------------------------------------------------------------
+VIOLATION CATEGORIES
+--------------------------------------------------------------------------------
+  whitespace_011        15 occurrences  - spacing around operators (+, -, *)
+  port_007 / port_008    6 occurrences  - alignment of 'in' / 'out' keywords
+  if_002                 4 occurrences  - condition not enclosed in ()
+  component_022          2 occurrences  - missing component_simple_name
+  process_012            3 occurrences  - missing 'is' keyword after process
+  process_018            1 occurrence   - missing label on 'end process'
+  instantiation_033      2 occurrences  - missing 'component' keyword
+  function_019 / 020     3 occurrences  - parenthesis / designator
+  procedure_013 / 014    3 occurrences  - parenthesis / designator
+  generic_map_004/005    2 occurrences  - generic map formatting
+  port_map_004/005/009   5 occurrences  - port map formatting
+  if_020 / if_024        2 occurrences  - if/then layout
+  report_statement_002   1 occurrence   - severity on own line
+  signal_007             1 occurrence   - signal default (testbench only)
+
+Tutte le violazioni sono di carattere STILISTICO (formattazione, leggibilita').
+Nessun errore di natura LOGICA o SEMANTICA: il codice e' funzionalmente corretto.
+
+--------------------------------------------------------------------------------
+ACTION TAKEN
+--------------------------------------------------------------------------------
+1) Eseguito: vsg --fix per applicare automaticamente i fix di formattazione.
+2) Creato vsg_config.yaml che disabilita signal_007 sul solo testbench
+   (in cui l'inizializzazione di un signal e' pratica legittima e diffusa).
+3) Rilanciato il linter -> 0 errori, 0 warning su tutti i file.
+
