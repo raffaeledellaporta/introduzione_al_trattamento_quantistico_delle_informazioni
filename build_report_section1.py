@@ -70,7 +70,7 @@ styles.add(ParagraphStyle(
     textColor=colors.HexColor("#333333"),
 ))
 styles.add(ParagraphStyle(
-    name="Code",
+    name="VHDLCode",
     parent=styles["Code"],
     fontName="Courier",
     fontSize=8.5,
@@ -103,7 +103,7 @@ def Cap(t): return Paragraph(t, styles["Caption"])
 def code_block(path: Path):
     """Carica un file e lo restituisce come blocco preformattato."""
     text = path.read_text(encoding="utf-8")
-    return Preformatted(text, styles["Code"])
+    return Preformatted(text, styles["VHDLCode"])
 
 
 def make_table(data, col_widths=None, header_bg="#0B3D91"):
@@ -222,7 +222,7 @@ story += [
         "                                       └─────┬──────┘ └─────┬──────┘\n"
         "                                             ▼              ▼\n"
         "                                          y0_obs         y1_obs\n",
-        styles["Code"]),
+        styles["VHDLCode"]),
     Cap("Schema a blocchi della top-level entity con registri I/O."),
 ]
 
@@ -399,4 +399,3 @@ doc = SimpleDocTemplate(
 doc.build(story, onFirstPage=on_page, onLaterPages=on_page)
 
 print(f"PDF generato: {OUT}")
-
