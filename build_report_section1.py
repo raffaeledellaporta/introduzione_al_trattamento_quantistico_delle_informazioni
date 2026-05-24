@@ -172,12 +172,12 @@ story += [
       "base in una sovrapposizione bilanciata. La sua matrice è:"),
     Paragraph(
         "<para align='center' fontName='Courier' fontSize=11>"
-        "H = (1/√2) · [ [ 1,  1 ] ; [ 1, -1 ] ]</para>",
+        "H = (1/sqrt(2)) * [ [ 1,  1 ] ; [ 1, -1 ] ]</para>",
         styles["Body"]),
-    P("Applicata al vettore di stato |ψ⟩ = [a; b]<sup>T</sup> produce:"),
+    P("Applicata al vettore di stato |psi&gt; = [a; b]<sup>T</sup> produce:"),
     Paragraph(
         "<para align='center' fontName='Courier' fontSize=11>"
-        "H · |ψ⟩ = (1/√2) · [ a+b ; a−b ]</para>",
+        "H * |psi&gt; = (1/sqrt(2)) * [ a+b ; a-b ]</para>",
         styles["Body"]),
     P("L'obiettivo del progetto è realizzare questa trasformazione in "
       "hardware su FPGA, usando aritmetica a virgola fissa a "
@@ -185,10 +185,10 @@ story += [
       "(formato <b>Q3.8</b>: 1 bit di segno, 3 bit interi, 8 bit frazionari). "
       "Il range rappresentabile è [−8.000, +7.996], con risoluzione "
       "1/256 ≈ 3.9·10<sup>−3</sup>."),
-    P("La costante 1/√2 ≈ 0.70710678 in Q3.8 vale:"),
+    P("La costante 1/sqrt(2) ~= 0.70710678 in Q3.8 vale:"),
     Paragraph(
         "<para align='center' fontName='Courier' fontSize=10>"
-        "round(0.70710678 · 2<sup>8</sup>) = 181 = 0000_1011_0101<sub>2</sub>"
+        "round(0.70710678 * 2^8) = 181 = 0000_1011_0101 (base 2)"
         "</para>",
         styles["Body"]),
 ]
@@ -204,24 +204,16 @@ story += [
       "matrice (1, 1, 1, −1, costante 1/√2) non sono input ma <b>costanti</b>, "
       "come permesso dal SUGGERIMENTO della traccia."),
     Preformatted(
-        "                  ┌─────────────────────┐\n"
-        "    A_CONST  ───► │  REG  a_reg (12b)   │──┐\n"
-        "                  └─────────────────────┘  │\n"
-        "                  ┌─────────────────────┐  ▼\n"
-        "    B_CONST  ───► │  REG  b_reg (12b)   │─►┌──────────────────────┐\n"
-        "                  └─────────────────────┘  │   hadamard_core      │\n"
-        "                                           │   (combinatoria)     │\n"
-        "                                           │   sum  = a+b         │\n"
-        "                                           │   diff = a-b         │\n"
-        "                                           │   prod = · 181       │\n"
-        "                                           │   y    = prod >> 8   │\n"
-        "                                           └──┬─────────────┬─────┘\n"
-        "                                              ▼             ▼\n"
-        "                                       ┌────────────┐ ┌────────────┐\n"
-        "                                       │ REG y0_reg │ │ REG y1_reg │\n"
-        "                                       └─────┬──────┘ └─────┬──────┘\n"
-        "                                             ▼              ▼\n"
-        "                                          y0_obs         y1_obs\n",
+        "A_CONST --> [ REG a_reg (12b) ] --\\\n"
+        "                                 +--> [ hadamard_core ] --> [ REG y0_reg ] --> y0_obs[5:0]\n"
+        "B_CONST --> [ REG b_reg (12b) ] --/        |                         \\n"
+        "                                           +---------------------------> [ REG y1_reg ] --> y1_obs[5:0]\n"
+        "\n"
+        "hadamard_core:\n"
+        "  sum  = a + b\n"
+        "  diff = a - b\n"
+        "  prod = (...) * 181\n"
+        "  y    = prod >> 8\n",
         styles["VHDLCode"]),
     Cap("Schema a blocchi della top-level entity con registri I/O."),
 ]
@@ -290,8 +282,10 @@ story += [
     H3("Spiegazione dettagliata"),
     P("<b>1. Porte fisiche</b> — clk e rst sono gli unici input osservabili "
       "sulla board; il vettore di stato è interno (costante), come consentito "
-      "dalla traccia. Le uscite sono std_logic_vector per poterle pinnare "
-      "direttamente ai LED della Boolean Board nel file .xdc."),
+      "dalla traccia. Le uscite top-level sono due bus da 6 bit "
+      "(<i>y0_obs</i>, <i>y1_obs</i>) che esportano un sottoinsieme di bit dei "
+      "registri di uscita, coerentemente con i pin realmente disponibili nel "
+      "file .xdc. Internamente i segnali di dato restano comunque a 12 bit Q3.8."),
     P("<b>2. Costanti del vettore stato</b> — A_CONST = 256, B_CONST = 0 → "
       "in Q3.8 valgono +1.0 e 0.0, cioè lo stato |0⟩. Cambiando solo queste "
       "due righe si testano in hardware tutti gli stati (|1⟩, |+⟩, |−⟩, …)."),
@@ -302,12 +296,12 @@ story += [
     P("<b>4. Istanza u_core</b> — mappatura diretta dei registri sui port del "
       "core. I generic vengono propagati, così il top resta scalabile."),
     P("<b>5. Registri di uscita p_out_reg</b> — stesso schema: catturano "
-      "y0_c/y1_c al fronte di salita. Garantiscono che il path combinatorio "
-      "del core sia un unico stage tra due flip-flop, consentendo a Vivado "
-      "di calcolare F<sub>max</sub> in modo pulito."),
-    P("<b>6. Driver delle uscite</b> — y0_obs &lt;= std_logic_vector(y0_reg) "
-      "è una conversione di tipo a costo zero (stesso pattern di bit), serve "
-      "solo a soddisfare la dichiarazione di porta."),
+      "y0_c/y1_c al fronte di salita. Architetturalmente il core resta quindi "
+      "incapsulato tra uno stadio di registri di ingresso e uno di uscita."),
+    P("<b>6. Driver delle uscite</b> — il top non esporta l'intero vettore a 12 bit, "
+      "ma solo alcuni bit significativi dei registri <i>y0_reg</i> e <i>y1_reg</i> "
+      "verso i pin realmente cablati sulla board. Questa scelta non altera la "
+      "larghezza interna dei dati, che rimane 12 bit signed Q3.8 come richiesto."),
     PageBreak(),
 ]
 

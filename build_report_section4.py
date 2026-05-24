@@ -130,6 +130,17 @@ def signal_steps(sig, t_end):
     return xs, ys
 
 
+def read_text_smart(path: Path):
+    """Legge file testuali con fallback di encoding (utile per log PowerShell UTF-16)."""
+    raw = path.read_bytes()
+    for enc in ("utf-8", "utf-8-sig", "utf-16", "utf-16-le", "utf-16-be", "latin-1"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="ignore")
+
+
 ts_ps, signals = parse_vcd(VCD)
 ts_ns = ts_ps / 1e3   # GHDL produce time in unita' di timescale (default ns)
 # Determina la durata totale
@@ -259,10 +270,14 @@ def tbl(data, col_widths=None):
 
 
 # Estrai i risultati dalla log
-log_text = LOG.read_text(encoding="utf-8", errors="ignore")
+log_text = read_text_smart(LOG)
+log_text = log_text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")
 checks = re.findall(
-    r"(TEST\d \|.+?\|? y\d) (OK|FAIL) \(got=(-?\d+)\s+exp=(-?\d+)\)",
-    log_text)
+    r"(TEST\d\s*\|.*?\s*y\d)\s+(OK|FAIL)\s+\(got\s*=\s*(-?\d+)\s+exp\s*=\s*(-?\d+)\)",
+    log_text,
+    flags=re.IGNORECASE,
+)
+checks = [(name, esito.upper(), got, exp) for (name, esito, got, exp) in checks]
 n_ok = sum(1 for c in checks if c[1] == "OK")
 n_fail = sum(1 for c in checks if c[1] == "FAIL")
 
@@ -456,4 +471,6 @@ doc = SimpleDocTemplate(
 )
 doc.build(story, onFirstPage=on_page, onLaterPages=on_page)
 print(f"\nPDF generato: {OUTP}")
+
+
 

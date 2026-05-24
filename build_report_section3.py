@@ -94,16 +94,16 @@ def parse_utilization(path: Path):
         return None
     text = path.read_text(encoding="utf-8", errors="ignore")
     metrics = {}
-    # Pattern tipici: "| Slice LUTs    |  XX | 0 | YYY | ZZZZ | 0.XX |"
+    # Pattern tipici: "| Slice LUTs | Used | Fixed | Prohibited | Available | Util% |"
     patterns = {
-        "Slice LUTs":          r"\|\s*Slice LUTs\s*\|\s*(\d+)\s*\|.*?\|\s*(\d+)\s*\|",
-        "Slice Registers":     r"\|\s*Slice Registers\s*\|\s*(\d+)\s*\|.*?\|\s*(\d+)\s*\|",
+        "Slice LUTs":          r"\|\s*Slice LUTs\s*\|\s*(\d+(?:\.\d+)?)\s*\|\s*\d+\s*\|\s*\d+\s*\|\s*(\d+(?:\.\d+)?)\s*\|",
+        "Slice Registers":     r"\|\s*Slice Registers\s*\|\s*(\d+(?:\.\d+)?)\s*\|\s*\d+\s*\|\s*\d+\s*\|\s*(\d+(?:\.\d+)?)\s*\|",
         "F7 Muxes":            r"\|\s*F7 Muxes\s*\|\s*(\d+)\s*\|",
         "F8 Muxes":            r"\|\s*F8 Muxes\s*\|\s*(\d+)\s*\|",
-        "Block RAM Tile":      r"\|\s*Block RAM Tile\s*\|\s*(\d+(?:\.\d+)?)\s*\|.*?\|\s*(\d+)\s*\|",
-        "DSPs":                r"\|\s*DSPs\s*\|\s*(\d+)\s*\|.*?\|\s*(\d+)\s*\|",
-        "Bonded IOB":          r"\|\s*Bonded IOB\s*\|\s*(\d+)\s*\|.*?\|\s*(\d+)\s*\|",
-        "BUFGCTRL":            r"\|\s*BUFGCTRL\s*\|\s*(\d+)\s*\|.*?\|\s*(\d+)\s*\|",
+        "Block RAM Tile":      r"\|\s*Block RAM Tile\s*\|\s*(\d+(?:\.\d+)?)\s*\|\s*\d+\s*\|\s*\d+\s*\|\s*(\d+(?:\.\d+)?)\s*\|",
+        "DSPs":                r"\|\s*DSPs\s*\|\s*(\d+(?:\.\d+)?)\s*\|\s*\d+\s*\|\s*\d+\s*\|\s*(\d+(?:\.\d+)?)\s*\|",
+        "Bonded IOB":          r"\|\s*Bonded IOB\s*\|\s*(\d+(?:\.\d+)?)\s*\|\s*\d+\s*\|\s*\d+\s*\|\s*(\d+(?:\.\d+)?)\s*\|",
+        "BUFGCTRL":            r"\|\s*BUFGCTRL\s*\|\s*(\d+(?:\.\d+)?)\s*\|\s*\d+\s*\|\s*\d+\s*\|\s*(\d+(?:\.\d+)?)\s*\|",
     }
     for k, pat in patterns.items():
         m = re.search(pat, text)
@@ -112,16 +112,54 @@ def parse_utilization(path: Path):
     return metrics
 
 
-def parse_summary(path: Path):
-    """Estrae i valori salvati da run_impl.tcl in summary.txt."""
+def parse_timing_impl(path: Path):
+    """Estrae WNS/WHS e periodo clock da timing_impl.rpt."""
     if not path.exists():
         return None
+
+    text = path.read_text(encoding="utf-8", errors="ignore")
     res = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if "=" in line:
-            k, v = line.split("=", 1)
-            res[k.strip()] = v.strip()
-    return res
+
+    # Estrae la prima riga valori della tabella "Design Timing Summary".
+    # In design senza endpoint può comparire "NA" invece del valore numerico.
+    m = re.search(
+        r"\|\s*Design Timing Summary\b.*?\n"
+        r".*?\n"
+        r"\s*WNS\(ns\).*?WHS\(ns\).*?\n"
+        r"\s*-+.*?\n"
+        r"\s*(\S+)\s+\S+\s+\S+\s+\S+\s+(\S+)",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if m:
+        res["WNS_SETUP_NS"] = m.group(1)
+        res["WHS_HOLD_NS"] = m.group(2)
+
+    # Periodo clock: prova i pattern più comuni nei report Vivado.
+    m = re.search(r"\bPeriod\s*\(ns\)\b[^\n\r]*?([0-9]+(?:\.[0-9]+)?)", text,
+                  flags=re.IGNORECASE)
+    if not m:
+        m = re.search(r"\bcreate_clock\b[^\n\r]*?-period\s+([0-9]+(?:\.[0-9]+)?)",
+                      text, flags=re.IGNORECASE)
+    if not m:
+        m = re.search(r"\bperiod\b[^0-9+\-]*([0-9]+(?:\.[0-9]+)?)", text,
+                      flags=re.IGNORECASE)
+    if m:
+        res["CLK_PERIOD_NS"] = m.group(1)
+
+    # Fallback: cerca valori numerici sparsi se la tabella non è riconosciuta.
+    if "WNS_SETUP_NS" not in res:
+        m = re.search(r"\bWNS\b[^\n\r0-9+\-]*([+\-]?\d+(?:\.\d+)?)", text,
+                      flags=re.IGNORECASE)
+        if m:
+            res["WNS_SETUP_NS"] = m.group(1)
+    if "WHS_HOLD_NS" not in res:
+        m = re.search(r"\bWHS\b[^\n\r0-9+\-]*([+\-]?\d+(?:\.\d+)?)", text,
+                      flags=re.IGNORECASE)
+        if m:
+            res["WHS_HOLD_NS"] = m.group(1)
+
+    return res if res else None
 
 
 def parse_power(path: Path):
@@ -137,24 +175,33 @@ def parse_power(path: Path):
         ("Confidence Level",     "confidence"),
         ("Junction Temperature", "tj"),
     ]:
-        m = re.search(rf"\|\s*{re.escape(label)}\s*\(?[^\)\|]*\)?\s*\|\s*"
-                      r"([0-9.]+)", text)
+        # Cattura la cella della colonna valore (puo' essere numero o testo es. "Medium").
+        m = re.search(rf"\|\s*{re.escape(label)}\s*\([^)]*\)\s*\|\s*([^|\r\n]+?)\s*\|", text)
+        if not m:
+            m = re.search(rf"\|\s*{re.escape(label)}\s*\|\s*([^|\r\n]+?)\s*\|", text)
         if m:
-            res[key] = m.group(1)
+            res[key] = m.group(1).strip()
         else:
-            m = re.search(rf"{re.escape(label)}\s*[:|]\s*([0-9.]+)", text)
+            m = re.search(rf"{re.escape(label)}\s*[:|]\s*([^|\r\n]+)", text)
             if m:
-                res[key] = m.group(1)
+                res[key] = m.group(1).strip()
     return res
 
 
 # ===========================================================================
 # Caricamento dati
 # ===========================================================================
-util  = parse_utilization(RPT / "utilization_impl.rpt")
-summ  = parse_summary    (RPT / "summary.txt")
-power = parse_power      (RPT / "power.rpt")
-DATA_OK = bool(util and summ and power)
+util   = parse_utilization(RPT / "utilization_impl.rpt")
+timing = parse_timing_impl(RPT / "timing_impl.rpt")
+power  = parse_power(RPT / "power.rpt")
+DATA_OK = bool(util and timing and power)
+
+
+def to_float_or_none(value):
+    try:
+        return float(value)
+    except Exception:
+        return None
 
 
 def fmt_util_row(name, key):
@@ -211,8 +258,7 @@ story += [
       "&nbsp;&nbsp;4. generazione automatica dei report di "
       "<b>utilization</b>, <b>timing</b>, <b>power</b>, <b>methodology</b>, "
       "<b>DRC</b>;<br/>"
-      "&nbsp;&nbsp;5. scrittura del bitstream <i>.bit</i> e di un file di "
-      "riepilogo testuale (<i>summary.txt</i>) facilmente parsabile."),
+      "&nbsp;&nbsp;5. scrittura del bitstream <i>.bit</i>."),
     H3("Comando di esecuzione"),
     Preformatted(
         "# Da PowerShell, nella cartella del progetto:\n"
@@ -264,8 +310,11 @@ story += [
     H3("Discussione"),
     P("Il design è estremamente <b>compatto</b>: la logica combinatoria del "
       "core consiste in due sommatori a 13 bit, due moltiplicatori e due "
-      "shift, mentre la parte sequenziale si riduce a 4 banchi di 12 "
-      "flip-flop (a_reg, b_reg, y0_reg, y1_reg → 48 FF). I due "
+      "shift. A livello RTL il top prevede registri di ingresso e di uscita; "
+      "nel run post-implementation corrente, tuttavia, Vivado ha ottimizzato la "
+      "logica sequenziale fino a riportare <b>0 Slice Registers</b> nel report, "
+      "effetto coerente con l'uso di ingressi costanti e con l'esposizione verso "
+      "l'esterno di soli bit osservabili. I due "
       "moltiplicatori <i>signed(13)·signed(12)</i> vengono inferiti come "
       "<b>DSP48E1</b>: Vivado preferisce sempre mappare moltiplicazioni "
       "≥ 4×4 bit su DSP per ridurre area e consumo. Non sono utilizzate né "
@@ -290,28 +339,33 @@ story += [
       "tutti i path di setup."),
 ]
 
-if summ:
-    wns   = float(summ.get("WNS_SETUP_NS", "0"))
-    whs   = float(summ.get("WHS_HOLD_NS",  "0"))
-    tclk  = float(summ.get("CLK_PERIOD_NS","10"))
-    fmax  = float(summ.get("FMAX_MHZ",     "0"))
+if timing:
+    wns_raw = timing.get("WNS_SETUP_NS", "NA")
+    whs_raw = timing.get("WHS_HOLD_NS", "NA")
+    tclk = float(timing.get("CLK_PERIOD_NS", "10.0"))
+
+    wns = to_float_or_none(wns_raw)
+    whs = to_float_or_none(whs_raw)
+    denom = (tclk - wns) if wns is not None else tclk
+    fmax = (1000.0 / denom) if denom > 0 else 0.0
+    fmax_label = f"{fmax:.2f} MHz" if wns is not None else f"{fmax:.2f} MHz (pari al solo target)"
     timing_data = [
         ["Parametro", "Valore", "Stato"],
         ["Periodo clock target (T_clk)",
-            f"{tclk:.3f} ns ({1000.0/tclk:.1f} MHz)", "vincolo XDC"],
+            f"{tclk:.3f} ns ({1000.0/tclk:.1f} MHz)", "da timing_impl.rpt"],
         ["WNS — Worst Negative Slack (setup)",
-            f"{wns:+.3f} ns",
-            "PASS" if wns >= 0 else "FAIL"],
+            f"{wns:+.3f} ns" if wns is not None else str(wns_raw),
+            ("PASS" if wns >= 0 else "FAIL") if wns is not None else "N/A"],
         ["WHS — Worst Hold Slack",
-            f"{whs:+.3f} ns",
-            "PASS" if whs >= 0 else "FAIL"],
+            f"{whs:+.3f} ns" if whs is not None else str(whs_raw),
+            ("PASS" if whs >= 0 else "FAIL") if whs is not None else "N/A"],
         ["F_max calcolata = 1/(T_clk − WNS)",
-            f"{fmax:.2f} MHz", "—"],
+            fmax_label, "—" if wns is not None else "N/A"],
     ]
 else:
     timing_data = [
         ["Parametro", "Valore", "Stato"],
-        ["Periodo clock target (T_clk)", "10.000 ns (100 MHz)", "vincolo XDC"],
+        ["Periodo clock target (T_clk)", "10.000 ns (100 MHz)", "fallback"],
         ["WNS — Worst Negative Slack (setup)", "TBD", "—"],
         ["WHS — Worst Hold Slack",             "TBD", "—"],
         ["F_max calcolata",                    "TBD", "—"],
@@ -327,7 +381,8 @@ if not DATA_OK:
 
 story += [
     H3("Considerazioni"),
-    P("Il path critico del design corrisponde alla catena "
+    P("Il path critico del design (quando sono presenti endpoint setup/hold "
+      "vincolati) corrisponde alla catena "
       "<i>FF (a_reg/b_reg) → addizione 13b → moltiplicazione DSP → shift → "
       "FF (y_reg)</i>. Il blocco DSP48E1 della Spartan-7 dispone di stadi "
       "interni di pipeline opzionali (M, P) che il sintetizzatore può "
@@ -401,16 +456,18 @@ story += [
 # ---------------------------------------------------------------------------
 story += [
     H2("3.5 Riepilogo della Sezione 3"),
-    P("• L'implementazione su Spartan-7 XC7S50 è <b>fattibile con risorse "
-      "trascurabili</b>: ~0.1% di LUT/FF/DSP del dispositivo.<br/>"
-      "• Il design rispetta il vincolo di 100 MHz con margine "
-      "comodamente positivo (WNS ≥ 0), e può salire fino a ~200–300 MHz se "
-      "il pinout lo consente.<br/>"
+    P("• L'implementazione su Spartan-7 XC7S50 è <b>ampiamente fattibile</b>: "
+      "l'uso di LUT/BRAM/DSP resta molto contenuto rispetto alla capacità del "
+      "dispositivo.<br/>"
+      "• Il clock target a 100 MHz è impostato correttamente; nel run corrente "
+      "i campi setup/hold risultano non applicabili (WNS/WHS = NA) per assenza "
+      "di vincoli I/O completi.<br/>"
       "• Il consumo totale è dominato dalla componente statica del silicio; "
       "la potenza dinamica del solo gate è dell'ordine del milliwatt."),
     Paragraph(
-        "Il design soddisfa quindi tutti i vincoli di <b>area</b>, "
-        "<b>timing</b> e <b>potenza</b> previsti dalla specifica.",
+        "Il design soddisfa pienamente i vincoli di <b>area</b> e <b>potenza</b>; "
+        "per una caratterizzazione completa del <b>timing</b> lato I/O occorrerebbe "
+        "aggiungere i relativi vincoli di input/output delay.",
         styles["OK"]),
 ]
 
@@ -436,4 +493,3 @@ print(f"PDF generato: {OUT}")
 print(f"Dati Vivado disponibili: {DATA_OK}")
 if not DATA_OK:
     print(f"  -> Lancia prima: vivado -mode batch -source scripts/run_impl.tcl")
-
