@@ -1,0 +1,24 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (win64) Build 6299465 Fri Nov 14 19:35:11 GMT 2025
+| Date         : Sun May 24 15:53:25 2026
+| Host         : DESKTOP-IB4MIEM running 64-bit major release  (build 9200)
+| Command      : report_timing -sort_by group -max_paths 5 -path_type summary -file report/vivado/timing_paths.rpt
+| Design       : hadamard_top
+| Device       : 7s50-csga324
+| Speed File   : -1  PRODUCTION 1.23 2018-06-13
+| Design State : Routed
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Report
+
+Startpoint                     Endpoint                       Slack(ns)     
+----------------------------------------------------------------------------
+rst                            u_core/prod_diff/D[8]          inf           
+rst                            u_core/prod_sum/D[8]           inf           
+rst                            u_core/prod_diff/RSTP          inf           
+rst                            u_core/prod_sum/RSTP           inf           
+u_core/prod_sum/CLK            y0_obs[1]                      inf           
+
+
+
